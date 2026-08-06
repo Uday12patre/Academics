@@ -11,7 +11,7 @@ void exchange(int *a, int *b) // swapping without a temporary variable
 	*a = *a - *b;
 	return;
 	
-	/* or
+	/* or with Multiplication and Division
 	a=a*b;
 	b=a/b;
 	a=a/b;
