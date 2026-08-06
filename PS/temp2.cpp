@@ -10,6 +10,12 @@ void exchange(int *a, int *b) // swapping without a temporary variable
 	*b = *a - *b;
 	*a = *a - *b;
 	return;
+	
+	/* or
+	a=a*b;
+	b=a/b;
+	a=a/b;
+	*/
 }
 
 int main()
