@@ -44,9 +44,58 @@ void drawPolygon(int n, int points[][2])
 	return;
 }
 
+bool isInsidePolygon(int x, int y, int n, int points[][2])
+{
+    int count = 0;
+
+    for(int i = 0; i < n; i++)
+    {
+        int j = (i + 1) % n;
+
+        int x1 = points[i][0];
+        int y1 = points[i][1];
+
+        int x2 = points[j][0];
+        int y2 = points[j][1];
+
+        // Check if horizontal ray crosses this edge
+        if((y1 > y) != (y2 > y))
+        {
+            double intersectionX =
+                x1 + (double)(y - y1) * (x2 - x1) / (y2 - y1);
+
+            if(intersectionX > x)
+            {
+                count++;
+            }
+        }
+    }
+
+    // Odd = inside, Even = outside
+    return (count % 2 == 1);
+}
 
 void seedFill(int seedX, int seedY, int color, int boundaryColor)
-{
+{		
+		// Getting maximum dimensions of output window
+		int maxX = getmaxx();
+    		int maxY = getmaxy();
+		
+		// Check whether seed is inside screen
+		if(seedX < 0 || seedX > maxX || seedY < 0 || seedY > maxY)
+		    {
+			cout << "Error: Seed point is outside the screen!\n";
+			return;
+		    }
+		   
+		// seed should not be on boundary 
+		if(getpixel(seedX, seedY) == boundaryColor)
+		    {
+			cout << "Error: Seed point is on the boundary!\n";
+			return;
+		    }
+		    
+		
 		stack<array<int, 2>> s;
 		
 		s.push({seedX,seedY});
@@ -58,10 +107,14 @@ void seedFill(int seedX, int seedY, int color, int boundaryColor)
 			
 			int x = p[0];
 			int y = p[1];
-			 
+			
+			// preventing access outside the screen
+			if(x < 0 || x > maxX || y < 0 || y > maxY)
+            			continue;
+            			
 			int currentColor = getpixel(x,y);
 			
-			if(currentColor == boundaryColor || color == currentColor)
+			if(currentColor == boundaryColor || currentColor == color)
 				continue;
 				
 			
@@ -80,6 +133,10 @@ void seedFill(int seedX, int seedY, int color, int boundaryColor)
 
 int main()
 {
+	int gd = DETECT, gm;
+	
+	initgraph(&gd, &gm, (char*)"");
+	
 	// Taking no. of points as input
 	int n;
 	cout << "Enter No. of points: ";
@@ -99,9 +156,13 @@ int main()
 		cout << "\n----------- Enter Coordinates in Cyclic Order -----------\n";
 		cout << "Enter Coordinate of Point " << i+1 << ": ";
 		cin >> x >> y;
-		if((x < 0 || x > 768) || (y < 0 || y > 675))
+		
+		int X = getmaxx();
+		int Y = getmaxy();
+		
+		if((x < 0 || x > X) || (y < 0 || y > Y))
 		{
-			cout << "\nError : Valid Range of x = [0, 768] and y = [0, 675]\n";
+			cout << "\nError : Valid Range of x = [0, " << X << "]" << " and y = [0, " << Y << "]\n";
 			return 0;			
 		}
 		
@@ -110,13 +171,37 @@ int main()
 	}
 	
 	int seedX, seedY;
-	cout << "Enter Seed Coordinates(x,y): ";
-	cin >> seedX >> seedY;
+	bool validSeed;
+
+	int maxX = getmaxx();
+	int maxY = getmaxy();
+
+	do
+	{
+	    cout << "\nEnter Seed Coordinates (x y): ";
+	    cin >> seedX >> seedY;
+
+	    validSeed = true;
+
+	    if(seedX < 0 || seedX > maxX ||
+	       seedY < 0 || seedY > maxY)
+	    {
+		cout << "Error: Seed point is outside the screen!\n";
+		cout << "Valid X: 0 to " << maxX << endl;
+		cout << "Valid Y: 0 to " << maxY << endl;
+
+		validSeed = false;
+	    }
+
+	    else if(!isInsidePolygon(seedX, seedY, n, points))
+	    {
+		cout << "Error: Seed point is outside the polygon!\n";
+		validSeed = false;
+	    }
+
+} while(!validSeed);
 	
 	
-	int gd = DETECT, gm;
-	
-	initgraph(&gd, &gm, (char*)"");
 	
 	// drawing skeleton of polygon
 	drawPolygon(n, points);
@@ -138,4 +223,3 @@ int main()
 	Point 3: 350 400
 	Seed Point: 350 250
 */
-
