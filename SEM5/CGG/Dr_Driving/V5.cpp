@@ -10,28 +10,30 @@
 using namespace std;
 
 // ============================================================
-// DR. DRIVING 2D - VERSION 4
-// REBUILT FROM SCRATCH FOR SDL_bgi / Linux
-//
-// Requirements:
-//  - Top-down 2D driving
-//  - Polygon filling (BGI polygon fill primitive)
-//  - DDA line algorithm
-//  - Bresenham line algorithm
-//  - Bresenham circle algorithm
-//  - 2D homogeneous transformations
-//  - Entire road/environment scrolls
-//  - Coins + score
-//  - Traffic + collision
-//  - Smooth held-key controls using SDL2 events
-//  - NO setactivepage(), setvisualpage(), or off-screen buffer
-//
-// IMPORTANT:
-// Use SDL_bgi initwindow() so the frame is presented only once after
-// all drawing commands are finished. No BGI page functions are used.
+// DR. DRIVING 2D - VERSION 5
+// REBUILT FOR SDL_bgi / Linux
+// Integrated: Cohen-Sutherland Line Clipping Algorithm
 // ============================================================
 
 const double PI = 3.14159265358979323846;
+
+// ------------------------------------------------------------
+// COHEN-SUTHERLAND LINE CLIPPING CONSTANTS & FUNCTIONS
+// ------------------------------------------------------------
+const int REGION_INSIDE       = 0b0000;
+const int REGION_LEFT         = 0b0001;
+const int REGION_RIGHT        = 0b0010;
+const int REGION_BOTTOM       = 0b0100;
+const int REGION_BOTTOM_LEFT  = 0b0101;
+const int REGION_BOTTOM_RIGHT = 0b0110;
+const int REGION_TOP          = 0b1000;
+const int REGION_TOP_LEFT     = 0b1001;
+const int REGION_TOP_RIGHT    = 0b1010;
+
+const int CLIP_LEFT   = 0b0001;
+const int CLIP_RIGHT  = 0b0010;
+const int CLIP_BOTTOM = 0b0100;
+const int CLIP_TOP    = 0b1000;
 
 // ------------------------------------------------------------
 // WORLD / GAME DATA
@@ -94,6 +96,129 @@ bool keyLeft = false;
 bool keyRight = false;
 bool keyUp = false;
 bool keyDown = false;
+
+// ------------------------------------------------------------
+// DDA LINE ALGORITHM
+// ------------------------------------------------------------
+
+void drawLineDDA(float x1, float y1, float x2, float y2, int color)
+{
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+
+    int length = (abs(dx) >= abs(dy)) ? abs(dx) : abs(dy);
+
+    if (length == 0)
+    {
+        putpixel((int)round(x1), (int)round(y1), color);
+        return;
+    }
+
+    float x_inc = dx / length;
+    float y_inc = dy / length;
+
+    float x = x1;
+    float y = y1;
+
+    for (int i = 0; i <= length; i++)
+    {
+        putpixel((int)round(x), (int)round(y), color);
+        x += x_inc;
+        y += y_inc;
+    }
+}
+
+// ------------------------------------------------------------
+// COHEN-SUTHERLAND IMPLEMENTATION
+// ------------------------------------------------------------
+
+int computeCode(double x, double y, double x_min, double y_min, double x_max, double y_max)
+{
+    if (x < x_min && y < y_min)
+        return REGION_TOP_LEFT;
+    else if (x > x_max && y < y_min)
+        return REGION_TOP_RIGHT;
+    else if (y < y_min)
+        return REGION_TOP;
+    else if (x < x_min && y > y_max)
+        return REGION_BOTTOM_LEFT;
+    else if (x > x_max && y > y_max)
+        return REGION_BOTTOM_RIGHT;
+    else if (y > y_max)
+        return REGION_BOTTOM;
+    else if (x < x_min)
+        return REGION_LEFT;
+    else if (x > x_max)
+        return REGION_RIGHT;
+    else
+        return REGION_INSIDE;
+}
+
+void drawClippedLineDDA(double x1, double y1, double x2, double y2,
+                        double x_min, double y_min, double x_max, double y_max,
+                        int color)
+{
+    int code1 = computeCode(x1, y1, x_min, y_min, x_max, y_max);
+    int code2 = computeCode(x2, y2, x_min, y_min, x_max, y_max);
+    bool accept = false;
+
+    while (true)
+    {
+        if ((code1 == REGION_INSIDE) && (code2 == REGION_INSIDE))
+        {
+            accept = true;
+            break;
+        }
+        else if (code1 & code2)
+        {
+            break; // Trivial Reject
+        }
+        else
+        {
+            double x = 0, y = 0;
+            int codeOut = (code1 != REGION_INSIDE) ? code1 : code2;
+
+            if (codeOut & CLIP_TOP)
+            {
+                x = x1 + (x2 - x1) * (y_min - y1) / (y2 - y1);
+                y = y_min;
+            }
+            else if (codeOut & CLIP_BOTTOM)
+            {
+                x = x1 + (x2 - x1) * (y_max - y1) / (y2 - y1);
+                y = y_max;
+            }
+            else if (codeOut & CLIP_RIGHT)
+            {
+                y = y1 + (y2 - y1) * (x_max - x1) / (x2 - x1);
+                x = x_max;
+            }
+            else if (codeOut & CLIP_LEFT)
+            {
+                y = y1 + (y2 - y1) * (x_min - x1) / (x2 - x1);
+                x = x_min;
+            }
+
+            if (codeOut == code1)
+            {
+                x1 = x;
+                y1 = y;
+                code1 = computeCode(x1, y1, x_min, y_min, x_max, y_max);
+            }
+            else
+            {
+                x2 = x;
+                y2 = y;
+                code2 = computeCode(x2, y2, x_min, y_min, x_max, y_max);
+            }
+        }
+    }
+
+    if (accept)
+    {
+        drawLineDDA(x1, y1, x2, y2, color);
+    }
+}
 
 // ------------------------------------------------------------
 // BASIC MATRIX TRANSFORMATIONS
@@ -165,9 +290,6 @@ vector<Point> transformPolygon(const vector<Point>& input,
     createRotation(R, angle);
     createTranslation(T, tx, ty);
 
-    // Row-vector order: P -> P*S -> P*R -> P*T
-    double temp[3][3];
-
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)
         {
@@ -191,37 +313,6 @@ vector<Point> transformPolygon(const vector<Point>& input,
         result.push_back(transformPoint(p, M));
 
     return result;
-}
-
-// ------------------------------------------------------------
-// DDA LINE
-// ------------------------------------------------------------
-
-void drawLineDDA(int x1, int y1, int x2, int y2, int color)
-{
-    int dx = x2 - x1;
-    int dy = y2 - y1;
-
-    int steps = max(abs(dx), abs(dy));
-
-    if (steps == 0)
-    {
-        putpixel(x1, y1, color);
-        return;
-    }
-
-    double x = x1;
-    double y = y1;
-
-    double xInc = (double)dx / steps;
-    double yInc = (double)dy / steps;
-
-    for (int i = 0; i <= steps; ++i)
-    {
-        putpixel((int)round(x), (int)round(y), color);
-        x += xInc;
-        y += yInc;
-    }
 }
 
 // ------------------------------------------------------------
@@ -305,9 +396,6 @@ void drawCircleBresenham(int xc, int yc, int r, int color)
 
 // ------------------------------------------------------------
 // FAST POLYGON FILLING
-//
-// This is the polygon filling part of Version 4.
-// SDL_bgi's native fillpoly primitive performs the fill efficiently.
 // ------------------------------------------------------------
 
 void fillPolygonFast(const vector<Point>& poly, int fillColor)
@@ -315,9 +403,6 @@ void fillPolygonFast(const vector<Point>& poly, int fillColor)
     if (poly.size() < 3)
         return;
 
-    // SDL_bgi implements the BGI fillpoly primitive efficiently.
-    // This replaces the old pixel-by-pixel scanline renderer.
-    // Polygon filling is still used for all major game objects.
     vector<int> pts;
     pts.reserve(poly.size() * 2);
 
@@ -343,7 +428,6 @@ void drawPolygonOutlineFast(const vector<Point>& poly, int color)
         const Point& a = poly[i];
         const Point& b = poly[(i + 1) % poly.size()];
 
-        // Use SDL_bgi's native line primitive for rendering speed.
         line((int)round(a.x), (int)round(a.y),
              (int)round(b.x), (int)round(b.y));
     }
@@ -358,12 +442,11 @@ void fillAndOutline(const vector<Point>& poly,
 }
 
 // ------------------------------------------------------------
-// HELPER: CLIP / WRAP WORLD Y
+// HELPER: WRAP WORLD Y
 // ------------------------------------------------------------
 
 double screenWorldY(double worldY)
 {
-    // World repeats every 900 pixels.
     double y = worldY + scrollY;
 
     while (y > SCREEN_H + 100)
@@ -386,12 +469,12 @@ void drawBackground()
 }
 
 // ------------------------------------------------------------
-// ROAD
+// ROAD WITH COHEN-SUTHERLAND CLIPPED LINES
 // ------------------------------------------------------------
 
 void drawRoad()
 {
-    // Road polygon.
+    // Road polygon
     vector<Point> road = {
         {ROAD_LEFT, 0},
         {ROAD_RIGHT, 0},
@@ -401,14 +484,20 @@ void drawRoad()
 
     fillAndOutline(road, DARKGRAY, WHITE);
 
-    // Shoulders.
-    setcolor(LIGHTGRAY);
-    line((int)ROAD_LEFT, 0, (int)ROAD_LEFT, SCREEN_H - 1);
+    // Viewport boundaries for clipping
+    double clip_xmin = 0;
+    double clip_ymin = 0;
+    double clip_xmax = SCREEN_W - 1;
+    double clip_ymax = SCREEN_H - 1;
 
-    setcolor(LIGHTGRAY);
-    line((int)ROAD_RIGHT, 0, (int)ROAD_RIGHT, SCREEN_H - 1);
+    // Road shoulders (clipped with Cohen-Sutherland)
+    drawClippedLineDDA(ROAD_LEFT, 0, ROAD_LEFT, SCREEN_H - 1,
+                       clip_xmin, clip_ymin, clip_xmax, clip_ymax, LIGHTGRAY);
 
-    // Yellow centre divider.
+    drawClippedLineDDA(ROAD_RIGHT, 0, ROAD_RIGHT, SCREEN_H - 1,
+                       clip_xmin, clip_ymin, clip_xmax, clip_ymax, LIGHTGRAY);
+
+    // Yellow centre dividers (clipped with Cohen-Sutherland)
     const double segment = 100.0;
     const double dash = 55.0;
 
@@ -420,12 +509,11 @@ void drawRoad()
         if (fabs(y2 - y1) > 100)
             continue;
 
-        setcolor(YELLOW);
-        line((int)ROAD_CENTER, (int)y1,
-             (int)ROAD_CENTER, (int)y2);
+        drawClippedLineDDA(ROAD_CENTER, y1, ROAD_CENTER, y2,
+                           clip_xmin, clip_ymin, clip_xmax, clip_ymax, YELLOW);
     }
 
-    // White lane separators.
+    // White lane separators (clipped with Cohen-Sutherland)
     double lane1 = ROAD_LEFT + (ROAD_RIGHT - ROAD_LEFT) / 3.0;
     double lane2 = ROAD_LEFT + 2.0 * (ROAD_RIGHT - ROAD_LEFT) / 3.0;
 
@@ -437,12 +525,13 @@ void drawRoad()
         if (fabs(y2 - y1) > 100)
             continue;
 
-        setcolor(WHITE);
-        line((int)lane1, (int)y1, (int)lane1, (int)y2);
-        line((int)lane2, (int)y1, (int)lane2, (int)y2);
+        drawClippedLineDDA(lane1, y1, lane1, y2,
+                           clip_xmin, clip_ymin, clip_xmax, clip_ymax, WHITE);
+        drawClippedLineDDA(lane2, y1, lane2, y2,
+                           clip_xmin, clip_ymin, clip_xmax, clip_ymax, WHITE);
     }
 
-    // Moving curb blocks.
+    // Moving curb blocks
     for (double worldY = -120.0; worldY < 1000.0; worldY += 70.0)
     {
         double y = screenWorldY(worldY);
@@ -482,7 +571,6 @@ void drawRoad()
 
 void drawTree(double x, double y)
 {
-    // Trunk.
     vector<Point> trunk = {
         {x - 5, y},
         {x + 5, y},
@@ -492,7 +580,6 @@ void drawTree(double x, double y)
 
     fillAndOutline(trunk, BROWN, WHITE);
 
-    // Crown made from polygons + circles.
     vector<Point> crown = {
         {x, y - 32},
         {x + 22, y - 12},
@@ -511,10 +598,9 @@ void drawTree(double x, double y)
 
 void drawLamp(double x, double y)
 {
-    setcolor(WHITE);
-    line((int)x, (int)y, (int)x, (int)y + 48);
-    line((int)x, (int)y,
-         (int)x + ((x < ROAD_CENTER) ? 15 : -15), (int)y);
+    // Using Cohen-Sutherland clipped line for lamp posts
+    drawClippedLineDDA(x, y, x, y + 48, 0, 0, SCREEN_W - 1, SCREEN_H - 1, WHITE);
+    drawClippedLineDDA(x, y, x + ((x < ROAD_CENTER) ? 15 : -15), y, 0, 0, SCREEN_W - 1, SCREEN_H - 1, WHITE);
 
     setfillstyle(SOLID_FILL, YELLOW);
     fillellipse(
@@ -538,7 +624,6 @@ void drawBuilding(double x, double y, int type)
 
     fillAndOutline(building, LIGHTGRAY, WHITE);
 
-    // Roof.
     vector<Point> roof = {
         {x - 4, y},
         {x + w + 4, y},
@@ -547,7 +632,6 @@ void drawBuilding(double x, double y, int type)
 
     fillAndOutline(roof, BROWN, WHITE);
 
-    // Windows.
     for (int row = 0; row < 2; ++row)
     {
         for (int col = 0; col < 2; ++col)
@@ -589,10 +673,8 @@ void drawCoin(double x, double y)
     ellipse((int)x, (int)y, 0, 360, 11, 11);
     ellipse((int)x, (int)y, 0, 360, 7, 7);
 
-    // Coin shine.
-    setcolor(WHITE);
-    line((int)x - 2, (int)y - 5,
-         (int)x + 2, (int)y - 5);
+    // Coin shine using Cohen-Sutherland clipped line
+    drawClippedLineDDA(x - 2, y - 5, x + 2, y - 5, 0, 0, SCREEN_W - 1, SCREEN_H - 1, WHITE);
 }
 
 void drawCoins()
@@ -666,7 +748,6 @@ void drawTrafficCar(double cx, double cy, int color)
     fillAndOutline(transformedWindshield, CYAN, WHITE);
     fillAndOutline(transformedRear, BLUE, WHITE);
 
-    // Wheels.
     setfillstyle(SOLID_FILL, BLACK);
 
     bar((int)cx - 28, (int)cy - 22,
@@ -688,7 +769,6 @@ void drawTrafficCar(double cx, double cy, int color)
 
 void drawPlayerCar()
 {
-    // Local coordinates: car points upward.
     vector<Point> body = {
         {-24, -42},
         { 24, -42},
@@ -769,7 +849,6 @@ void drawPlayerCar()
     fillAndOutline(transformedRear, BLUE, WHITE);
     fillAndOutline(transformedBonnet, LIGHTRED, WHITE);
 
-    // Wheels are circles/polygons transformed by the same angle.
     vector<Point> wheelCenters = {
         {-27, -23},
         { 27, -23},
@@ -792,7 +871,6 @@ void drawPlayerCar()
         );
     }
 
-    // Headlights.
     vector<Point> leftLight = {
         {-15, -40},
         {-5, -40},
@@ -831,8 +909,6 @@ void drawPlayerCar()
 void drawHUD()
 {
     setfillstyle(SOLID_FILL, BLACK);
-
-    // Top HUD panel.
     bar(0, 0, SCREEN_W - 1, 42);
 
     setcolor(WHITE);
@@ -845,7 +921,6 @@ void drawHUD()
     sprintf(text, "SPEED: %d", (int)round(playerSpeed));
     outtextxy(SCREEN_W - 125, 10, text);
 
-    // Controls at bottom.
     bar(0, SCREEN_H - 28, SCREEN_W - 1, SCREEN_H - 1);
 
     outtextxy(
@@ -890,44 +965,25 @@ void initializeWorld()
     coins.clear();
     traffic.clear();
 
-    // Trees / lamps / buildings on both sides.
     for (int i = 0; i < 8; ++i)
     {
         double y = 50.0 + i * 105.0;
 
-        roadside.push_back(
-            {ROAD_LEFT - 65.0, y, 0}
-        );
-
-        roadside.push_back(
-            {ROAD_RIGHT + 30.0, y + 35.0, 0}
-        );
-
-        roadside.push_back(
-            {ROAD_LEFT - 35.0, y + 20.0, 1}
-        );
-
-        roadside.push_back(
-            {ROAD_RIGHT + 10.0, y + 55.0, 1}
-        );
+        roadside.push_back({ROAD_LEFT - 65.0, y, 0});
+        roadside.push_back({ROAD_RIGHT + 30.0, y + 35.0, 0});
+        roadside.push_back({ROAD_LEFT - 35.0, y + 20.0, 1});
+        roadside.push_back({ROAD_RIGHT + 10.0, y + 55.0, 1});
 
         if (i % 3 == 0)
         {
-            roadside.push_back(
-                {ROAD_LEFT - 125.0, y + 10.0, 2}
-            );
-
-            roadside.push_back(
-                {ROAD_RIGHT + 70.0, y + 45.0, 2}
-            );
+            roadside.push_back({ROAD_LEFT - 125.0, y + 10.0, 2});
+            roadside.push_back({ROAD_RIGHT + 70.0, y + 45.0, 2});
         }
     }
 
-    // Coins placed in the lanes.
     for (int i = 0; i < 15; ++i)
     {
         int lane = i % 3;
-
         double laneX;
 
         if (lane == 0)
@@ -937,31 +993,13 @@ void initializeWorld()
         else
             laneX = ROAD_RIGHT - 48;
 
-        coins.push_back(
-            {laneX, 75.0 + i * 90.0, true}
-        );
+        coins.push_back({laneX, 75.0 + i * 90.0, true});
     }
 
-    // Traffic.
-    // Cars are deliberately staggered in both lane and distance so that
-    // no bot overlaps another bot and the player is never spawned inside
-    // a traffic car.
-    traffic.push_back(
-        {ROAD_LEFT + 44, 120.0, 1.00, BLUE}
-    );
-
-    traffic.push_back(
-        {ROAD_RIGHT - 44, 440.0, 0.90, MAGENTA}
-    );
-
-    traffic.push_back(
-        {ROAD_LEFT + 44, 780.0, 1.10, CYAN}
-    );
-
-    // Keep the first same-lane car far enough away from the player.
-    traffic.push_back(
-        {ROAD_CENTER, 1200.0, 0.95, YELLOW}
-    );
+    traffic.push_back({ROAD_LEFT + 44, 120.0, 1.00, BLUE});
+    traffic.push_back({ROAD_RIGHT - 44, 440.0, 0.90, MAGENTA});
+    traffic.push_back({ROAD_LEFT + 44, 780.0, 1.10, CYAN});
+    traffic.push_back({ROAD_CENTER, 1200.0, 0.95, YELLOW});
 }
 
 // ------------------------------------------------------------
@@ -972,20 +1010,16 @@ void resetGame()
 {
     playerX = ROAD_CENTER;
     playerY = SCREEN_H - 100;
-
     playerAngle = 0.0;
-
     scrollY = 0.0;
 
     playerSpeed = 0.0;
     targetSpeed = 0.0;
-
     steering = 0.0;
 
     score = 0;
     crashed = false;
 
-    // Reset input state as well.
     keyLeft = false;
     keyRight = false;
     keyUp = false;
@@ -1004,14 +1038,9 @@ bool near(double a, double b, double tolerance)
     return fabs(a - b) <= tolerance;
 }
 
-bool checkCollision(double x1, double y1,
-                    double x2, double y2)
+bool checkCollision(double x1, double y1, double x2, double y2)
 {
-    // The car sprites are about 50-55 px wide and 80-90 px long.
-    // Use a slightly smaller hit box so cars do not crash merely
-    // because their outlines are close.
-    return near(x1, x2, 38.0) &&
-           near(y1, y2, 58.0);
+    return near(x1, x2, 38.0) && near(y1, y2, 58.0);
 }
 
 bool sameLane(const TrafficCar& a, const TrafficCar& b)
@@ -1021,8 +1050,6 @@ bool sameLane(const TrafficCar& a, const TrafficCar& b)
 
 void keepTrafficSeparated()
 {
-    // Prevent two bot cars in the same lane from visually occupying
-    // the same position.  World-Y is also the scrolling direction.
     const double minimumGap = 135.0;
 
     for (size_t i = 0; i < traffic.size(); ++i)
@@ -1036,8 +1063,6 @@ void keepTrafficSeparated()
 
             if (gap < minimumGap)
             {
-                // Keep the car that is farther ahead where it is and
-                // move the other one behind it.
                 if (traffic[i].worldY <= traffic[j].worldY)
                     traffic[j].worldY = traffic[i].worldY + minimumGap;
                 else
@@ -1056,7 +1081,6 @@ void updateGame(double dt)
     if (crashed)
         return;
 
-    // Speed control.
     if (keyUp)
         targetSpeed = 8.0;
     else if (keyDown)
@@ -1064,61 +1088,48 @@ void updateGame(double dt)
     else
         targetSpeed = 5.0;
 
-    // Smooth acceleration/deceleration.
     double acceleration = 8.0;
 
     if (playerSpeed < targetSpeed)
     {
         playerSpeed += acceleration * dt;
-
         if (playerSpeed > targetSpeed)
             playerSpeed = targetSpeed;
     }
     else if (playerSpeed > targetSpeed)
     {
         playerSpeed -= acceleration * dt;
-
         if (playerSpeed < targetSpeed)
             playerSpeed = targetSpeed;
     }
 
-    // Steering.
     steering = 0.0;
 
     if (keyLeft)
         steering -= 1.0;
-
     if (keyRight)
         steering += 1.0;
 
     if (steering != 0.0)
     {
         playerX += steering * 190.0 * dt;
-
         playerAngle = steering * 10.0;
     }
     else
     {
-        // Return steering smoothly.
         playerAngle *= 0.82;
-
         if (fabs(playerAngle) < 0.2)
             playerAngle = 0.0;
     }
 
-    // Keep player on road.
     double margin = 34.0;
-
     if (playerX < ROAD_LEFT + margin)
         playerX = ROAD_LEFT + margin;
-
     if (playerX > ROAD_RIGHT - margin)
         playerX = ROAD_RIGHT - margin;
 
-    // Entire world moves downward.
     scrollY += playerSpeed * 52.0 * dt;
 
-    // Traffic moves at a different relative speed.
     for (TrafficCar& car : traffic)
     {
         car.worldY += car.speed * 42.0 * dt;
@@ -1127,20 +1138,13 @@ void updateGame(double dt)
             car.worldY -= 1500.0;
     }
 
-    // Keep bots from catching up and drawing on top of each other.
     keepTrafficSeparated();
 
-    // Check player-vs-traffic collision only after the traffic layout
-    // has been stabilized.
     for (const TrafficCar& car : traffic)
     {
         double sy = screenWorldY(car.worldY);
 
-        if (checkCollision(
-                playerX,
-                playerY,
-                car.x,
-                sy))
+        if (checkCollision(playerX, playerY, car.x, sy))
         {
             crashed = true;
             playerSpeed = 0.0;
@@ -1148,7 +1152,6 @@ void updateGame(double dt)
         }
     }
 
-    // Coin collection.
     for (Coin& c : coins)
     {
         if (!c.active)
@@ -1156,18 +1159,13 @@ void updateGame(double dt)
 
         double sy = screenWorldY(c.worldY);
 
-        if (checkCollision(
-                playerX,
-                playerY,
-                c.x,
-                sy))
+        if (checkCollision(playerX, playerY, c.x, sy))
         {
             c.active = false;
             score += 10;
         }
     }
 
-    // Recycle coins after they pass the player.
     for (Coin& c : coins)
     {
         double sy = screenWorldY(c.worldY);
@@ -1197,14 +1195,9 @@ void drawTraffic()
 // ------------------------------------------------------------
 // COMPLETE FRAME
 // ------------------------------------------------------------
-// Rendering uses one completed-frame refresh. There is no
-// setactivepage(), setvisualpage(), or user-created off-screen page.
-// SDL_bgi's initwindow mode lets us draw the frame without presenting
-// every individual graphics command.
 
 void renderFrame()
 {
-    // Direct rendering only.
     setbkcolor(GREEN);
     cleardevice();
     drawRoad();
@@ -1241,23 +1234,16 @@ void handleEvents(bool& running)
 
             if (key == SDLK_q || key == SDLK_ESCAPE)
                 running = false;
-
             else if (key == SDLK_a || key == SDLK_LEFT)
                 keyLeft = true;
-
             else if (key == SDLK_d || key == SDLK_RIGHT)
                 keyRight = true;
-
             else if (key == SDLK_w || key == SDLK_UP)
                 keyUp = true;
-
             else if (key == SDLK_s || key == SDLK_DOWN)
                 keyDown = true;
-
             else if (key == SDLK_r)
-            {
                 resetGame();
-            }
         }
         else if (event.type == SDL_KEYUP)
         {
@@ -1265,13 +1251,10 @@ void handleEvents(bool& running)
 
             if (key == SDLK_a || key == SDLK_LEFT)
                 keyLeft = false;
-
             else if (key == SDLK_d || key == SDLK_RIGHT)
                 keyRight = false;
-
             else if (key == SDLK_w || key == SDLK_UP)
                 keyUp = false;
-
             else if (key == SDLK_s || key == SDLK_DOWN)
                 keyDown = false;
         }
@@ -1284,9 +1267,6 @@ void handleEvents(bool& running)
 
 int main()
 {
-    // SDL_bgi initwindow mode prevents a refresh after every individual
-    // line/polygon/circle. We present only one completed frame below.
-    // This is NOT setactivepage()/setvisualpage() double buffering.
     initwindow(800, 600);
     sdlbgifast();
 
@@ -1299,7 +1279,6 @@ int main()
     SCREEN_W = getmaxx() + 1;
     SCREEN_H = getmaxy() + 1;
 
-    // Use dimensions of the actual SDL_bgi window.
     ROAD_LEFT = SCREEN_W * 0.28;
     ROAD_RIGHT = SCREEN_W * 0.72;
     ROAD_CENTER = (ROAD_LEFT + ROAD_RIGHT) / 2.0;
@@ -1308,11 +1287,8 @@ int main()
     resetGame();
 
     bool running = true;
-
-    // Timing.
     Uint32 previous = SDL_GetTicks();
 
-    // First frame: draw everything, then present exactly once.
     renderFrame();
     refresh();
 
@@ -1320,30 +1296,20 @@ int main()
     {
         Uint32 now = SDL_GetTicks();
 
-        double dt =
-            (double)(now - previous) / 1000.0;
-
+        double dt = (double)(now - previous) / 1000.0;
         previous = now;
 
-        // Prevent a giant movement after a pause/window drag.
         if (dt > 0.05)
             dt = 0.05;
 
         handleEvents(running);
-
         updateGame(dt);
-
         renderFrame();
-
-        // Present exactly one completed frame.
         refresh();
 
-        // SDL_Delay is used instead of BGI delay(), because BGI delay()
-        // may itself trigger an additional screen refresh.
         SDL_Delay(8);
     }
 
     closegraph();
-
     return 0;
 }
