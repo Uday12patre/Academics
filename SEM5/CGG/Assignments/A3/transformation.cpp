@@ -1,127 +1,30 @@
 #include <iostream>
-#include <graphics.h>
+#include <iomanip>
 #include <cmath>
+#include <graphics.h>
 
 using namespace std;
 
-#define MAX 50
+#define MAX_POINTS 50
+const double PI = 3.14159265358979323846;
 
-// =====================================================
-// BRESENHAM LINE ALGORITHM
-// =====================================================
-void drawLineBresenham(int x1, int y1, int x2, int y2, int color)
+// ============================================================
+// 1. MATRIX UTILITY FUNCTIONS (Column-Vector Convention)
+// ============================================================
+
+// Initialize a 3x3 identity matrix
+void setIdentity(double M[3][3])
 {
-    int x = x1;
-    int y = y1;
-
-    int dx = abs(x2 - x1);
-    int dy = abs(y2 - y1);
-
-    int sx = (x1 < x2) ? 1 : -1;
-    int sy = (y1 < y2) ? 1 : -1;
-
-    int p;
-
-    putpixel(x, y, color);
-
-    // Case 1: |slope| <= 1
-    if (dx >= dy)
-    {
-        p = 2 * dy - dx;
-
-        for (int i = 0; i < dx; i++)
-        {
-            x = x + sx;
-
-            if (p >= 0)
-            {
-                y = y + sy;
-                p = p + 2 * (dy - dx);
-            }
-            else
-            {
-                p = p + 2 * dy;
-            }
-
-            putpixel(x, y, color);
-            delay(2);
-        }
-    }
-
-    // Case 2: |slope| > 1
-    else
-    {
-        p = 2 * dx - dy;
-
-        for (int i = 0; i < dy; i++)
-        {
-            y = y + sy;
-
-            if (p >= 0)
-            {
-                x = x + sx;
-                p = p + 2 * (dx - dy);
-            }
-            else
-            {
-                p = p + 2 * dx;
-            }
-
-            putpixel(x, y, color);
-            delay(2);
-        }
-    }
-}
-
-
-// =====================================================
-// DISPLAY POINT MATRIX
-// =====================================================
-void displayPoints(double P[][3], int n, const char title[])
-{
-    cout << "\n";
-    cout << "=====================================\n";
-    cout << title << "\n";
-    cout << "=====================================\n";
-
-    for (int i = 0; i < n; i++)
-    {
-        cout << "[ ";
-
-        for (int j = 0; j < 3; j++)
-        {
-            cout << P[i][j] << " ";
-        }
-
-        cout << "]\n";
-    }
-}
-
-
-// =====================================================
-// DISPLAY 3 x 3 MATRIX
-// =====================================================
-void displayMatrix(double M[3][3], const char title[])
-{
-    cout << "\n";
-    cout << title << "\n";
-    cout << "-------------------------\n";
-
     for (int i = 0; i < 3; i++)
     {
         for (int j = 0; j < 3; j++)
         {
-            cout << M[i][j] << "\t";
+            M[i][j] = (i == j) ? 1.0 : 0.0;
         }
-
-        cout << endl;
     }
 }
 
-
-// =====================================================
-// COPY MATRIX
-// =====================================================
+// Copy source matrix to destination matrix
 void copyMatrix(double source[3][3], double destination[3][3])
 {
     for (int i = 0; i < 3; i++)
@@ -133,643 +36,464 @@ void copyMatrix(double source[3][3], double destination[3][3])
     }
 }
 
-
-// =====================================================
-// MATRIX MULTIPLICATION
-// A x B
-// =====================================================
-void multiplyMatrix(
-    double A[3][3],
-    double B[3][3],
-    double result[3][3])
+// Matrix Multiplication for 3x3 matrices: Result = A x B
+void multiplyMatrix3x3(double A[3][3], double B[3][3], double result[3][3])
 {
+    double temp[3][3] = {0};
     for (int i = 0; i < 3; i++)
     {
         for (int j = 0; j < 3; j++)
         {
-            result[i][j] = 0;
-
+            temp[i][j] = 0.0;
             for (int k = 0; k < 3; k++)
             {
-                result[i][j] += A[i][k] * B[k][j];
+                temp[i][j] += A[i][k] * B[k][j];
             }
         }
     }
+    copyMatrix(temp, result);
 }
 
-
-// =====================================================
-// POINT TRANSFORMATION
-// P' = P x M
-// =====================================================
-void transformPoints(
-    double P[][3],
-    double result[][3],
-    int n,
-    double M[3][3])
+// Transform points using column-vector convention: P' = M * P
+// Each vertex i is treated as a 3x1 column vector [x, y, 1]^T
+void transformPoints(double P[][3], double result[][3], int n, double M[3][3])
 {
     for (int i = 0; i < n; i++)
     {
         for (int j = 0; j < 3; j++)
         {
-            result[i][j] = 0;
-
+            result[i][j] = 0.0;
             for (int k = 0; k < 3; k++)
             {
-                result[i][j] += P[i][k] * M[k][j];
+                result[i][j] += M[j][k] * P[i][k];
             }
         }
     }
 }
 
-
-// =====================================================
-// TRANSLATION MATRIX
-// Row vector form
-//
-// [x y 1] x [1  0  0]
-//             [0  1  0]
-//             [tx ty 1]
-// =====================================================
-void createTranslation(double T[3][3])
+// Display 3x3 transformation matrix
+void displayMatrix(double M[3][3], const char title[])
 {
-    double tx, ty;
-
-    cout << "\nEnter tx: ";
-    cin >> tx;
-
-    cout << "Enter ty: ";
-    cin >> ty;
-
-    T[0][0] = 1;
-    T[0][1] = 0;
-    T[0][2] = 0;
-
-    T[1][0] = 0;
-    T[1][1] = 1;
-    T[1][2] = 0;
-
-    T[2][0] = tx;
-    T[2][1] = ty;
-    T[2][2] = 1;
-}
-
-
-// =====================================================
-// SCALING MATRIX
-// =====================================================
-void createScaling(double S[3][3])
-{
-    double sx, sy;
-
-    cout << "\nEnter sx: ";
-    cin >> sx;
-
-    cout << "Enter sy: ";
-    cin >> sy;
-
-    S[0][0] = sx;
-    S[0][1] = 0;
-    S[0][2] = 0;
-
-    S[1][0] = 0;
-    S[1][1] = sy;
-    S[1][2] = 0;
-
-    S[2][0] = 0;
-    S[2][1] = 0;
-    S[2][2] = 1;
-}
-
-
-// =====================================================
-// ROTATION MATRIX
-// Row vector counter-clockwise rotation
-// =====================================================
-void createRotation(double R[3][3])
-{
-    double theta;
-
-    cout << "\nEnter angle in degrees: ";
-    cin >> theta;
-
-    double rad = theta * 3.141592653589793 / 180.0;
-
-    R[0][0] = cos(rad);
-    R[0][1] = sin(rad);
-    R[0][2] = 0;
-
-    R[1][0] = -sin(rad);
-    R[1][1] = cos(rad);
-    R[1][2] = 0;
-
-    R[2][0] = 0;
-    R[2][1] = 0;
-    R[2][2] = 1;
-}
-
-
-// =====================================================
-// REFLECTION ABOUT X-AXIS
-// =====================================================
-void createReflectionX(double R[3][3])
-{
-    R[0][0] = 1;
-    R[0][1] = 0;
-    R[0][2] = 0;
-
-    R[1][0] = 0;
-    R[1][1] = -1;
-    R[1][2] = 0;
-
-    R[2][0] = 0;
-    R[2][1] = 0;
-    R[2][2] = 1;
-}
-
-
-// =====================================================
-// REFLECTION ABOUT Y-AXIS
-// =====================================================
-void createReflectionY(double R[3][3])
-{
-    R[0][0] = -1;
-    R[0][1] = 0;
-    R[0][2] = 0;
-
-    R[1][0] = 0;
-    R[1][1] = 1;
-    R[1][2] = 0;
-
-    R[2][0] = 0;
-    R[2][1] = 0;
-    R[2][2] = 1;
-}
-
-
-// =====================================================
-// SHEARING IN X
-// =====================================================
-void createShearX(double S[3][3])
-{
-    double shx;
-
-    cout << "\nEnter shear factor shx: ";
-    cin >> shx;
-
-    S[0][0] = 1;
-    S[0][1] = 0;
-    S[0][2] = 0;
-
-    S[1][0] = shx;
-    S[1][1] = 1;
-    S[1][2] = 0;
-
-    S[2][0] = 0;
-    S[2][1] = 0;
-    S[2][2] = 1;
-}
-
-
-// =====================================================
-// SHEARING IN Y
-// =====================================================
-void createShearY(double S[3][3])
-{
-    double shy;
-
-    cout << "\nEnter shear factor shy: ";
-    cin >> shy;
-
-    S[0][0] = 1;
-    S[0][1] = shy;
-    S[0][2] = 0;
-
-    S[1][0] = 0;
-    S[1][1] = 1;
-    S[1][2] = 0;
-
-    S[2][0] = 0;
-    S[2][1] = 0;
-    S[2][2] = 1;
-}
-
-
-// =====================================================
-// CREATE TRANSFORMATION BASED ON MENU CHOICE
-// =====================================================
-void createTransformation(int choice, double M[3][3])
-{
-    switch (choice)
+    cout << "\n--------------------------------------------\n";
+    cout << title << "\n";
+    cout << "--------------------------------------------\n";
+    for (int i = 0; i < 3; i++)
     {
-        case 1:
-            createTranslation(M);
-            break;
+        cout << "| ";
+        for (int j = 0; j < 3; j++)
+        {
+            cout << setw(8) << fixed << setprecision(2) << M[i][j] << " ";
+        }
+        cout << "|\n";
+    }
+}
 
-        case 2:
-            createScaling(M);
-            break;
+// Display polygon vertices
+void displayPoints(double P[][3], int n, const char title[])
+{
+    cout << "\n============================================\n";
+    cout << title << " (Column-vector form: [x, y, 1]^T)\n";
+    cout << "============================================\n";
+    for (int i = 0; i < n; i++)
+    {
+        cout << "Point " << setw(2) << i + 1 << ": [ ";
+        for (int j = 0; j < 3; j++)
+        {
+            cout << setw(8) << fixed << setprecision(2) << P[i][j] << " ";
+        }
+        cout << "]^T\n";
+    }
+}
 
-        case 3:
-            createRotation(M);
-            break;
+// ============================================================
+// 2. ELEMENTARY 2D TRANSFORMATION MATRICES (Column-Vector Form)
+// ============================================================
 
-        case 4:
-            createReflectionX(M);
-            break;
+// Translation Matrix:
+// [ 1  0  tx ]
+// [ 0  1  ty ]
+// [ 0  0   1 ]
+void getTranslationMatrix(double tx, double ty, double T[3][3])
+{
+    setIdentity(T);
+    T[0][2] = tx;
+    T[1][2] = ty;
+}
 
-        case 5:
-            createReflectionY(M);
-            break;
+// Scaling Matrix:
+// [ sx  0   0 ]
+// [  0 sy   0 ]
+// [  0  0   1 ]
+void getScalingMatrix(double sx, double sy, double S[3][3])
+{
+    setIdentity(S);
+    S[0][0] = sx;
+    S[1][1] = sy;
+}
 
-        case 6:
-            createShearX(M);
-            break;
+// Counter-Clockwise Rotation about Origin:
+// [ cos(θ) -sin(θ)  0 ]
+// [ sin(θ)  cos(θ)  0 ]
+// [   0       0     1 ]
+void getRotationMatrix(double angleDeg, double R[3][3])
+{
+    double rad = angleDeg * (PI / 180.0);
+    setIdentity(R);
+    R[0][0] = cos(rad);
+    R[0][1] = -sin(rad);
+    R[1][0] = sin(rad);
+    R[1][1] = cos(rad);
+}
 
-        case 7:
-            createShearY(M);
+// Rotation about an Arbitrary Point (xr, yr):
+// M = T(xr, yr) * R(θ) * T(-xr, -yr)
+void getArbitraryPointRotationMatrix(double xr, double yr, double angleDeg, double M[3][3])
+{
+    double T_neg[3][3], R[3][3], T_pos[3][3], temp[3][3];
+
+    getTranslationMatrix(-xr, -yr, T_neg);
+    getRotationMatrix(angleDeg, R);
+    getTranslationMatrix(xr, yr, T_pos);
+
+    // Composite: T(xr, yr) * R(θ) * T(-xr, -yr)
+    multiplyMatrix3x3(T_pos, R, temp);
+    multiplyMatrix3x3(temp, T_neg, M);
+}
+
+// Reflection Matrices:
+void getReflectionMatrix(int type, double Ref[3][3])
+{
+    setIdentity(Ref);
+    switch (type)
+    {
+        case 1: // Reflection about X-axis (x -> x, y -> -y)
+            Ref[1][1] = -1.0;
+            break;
+        case 2: // Reflection about Y-axis (x -> -x, y -> y)
+            Ref[0][0] = -1.0;
+            break;
+        case 3: // Reflection about Origin (x -> -x, y -> -y)
+            Ref[0][0] = -1.0;
+            Ref[1][1] = -1.0;
             break;
     }
 }
 
-
-// =====================================================
-// DRAW AXES USING BRESENHAM
-// =====================================================
-void drawAxes(int cx, int cy)
+// Shearing Matrices:
+void getShearMatrix(int type, double sh, double Sh[3][3])
 {
-    // X-axis
-    drawLineBresenham(
-        0,
-        cy,
-        getmaxx(),
-        cy,
-        LIGHTGRAY
-    );
-
-    // Y-axis
-    drawLineBresenham(
-        cx,
-        0,
-        cx,
-        getmaxy(),
-        LIGHTGRAY
-    );
+    setIdentity(Sh);
+    if (type == 1) // Shear along X-axis: x' = x + sh*y, y' = y
+    {
+        Sh[0][1] = sh;
+    }
+    else if (type == 2) // Shear along Y-axis: x' = x, y' = y + sh*x
+    {
+        Sh[1][0] = sh;
+    }
 }
 
+// ============================================================
+// 3. GRAPHICS & BRESENHAM LINE DRAWING
+// ============================================================
 
-// =====================================================
-// DRAW OBJECT USING BRESENHAM
-// =====================================================
-void drawObject(
-    double P[][3],
-    int n,
-    int cx,
-    int cy,
-    int scale,
-    int color)
+// Bresenham's integer line algorithm (All Octants)
+void drawLineBresenham(int x1, int y1, int x2, int y2, int color)
+{
+    int x = x1;
+    int y = y1;
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+
+    putpixel(x, y, color);
+
+    if (dx >= dy)
+    {
+        int p = 2 * dy - dx;
+        for (int i = 0; i < dx; i++)
+        {
+            x += sx;
+            if (p >= 0)
+            {
+                y += sy;
+                p += 2 * (dy - dx);
+            }
+            else
+            {
+                p += 2 * dy;
+            }
+            putpixel(x, y, color);
+        }
+    }
+    else
+    {
+        int p = 2 * dx - dy;
+        for (int i = 0; i < dy; i++)
+        {
+            y += sy;
+            if (p >= 0)
+            {
+                x += sx;
+                p += 2 * (dx - dy);
+            }
+            else
+            {
+                p += 2 * dx;
+            }
+            putpixel(x, y, color);
+        }
+    }
+}
+
+// Draw centered Cartesian coordinate axes
+void drawAxes(int cx, int cy)
+{
+    drawLineBresenham(0, cy, getmaxx(), cy, DARKGRAY);
+    drawLineBresenham(cx, 0, cx, getmaxy(), DARKGRAY);
+}
+
+// Render polygon using Bresenham lines
+void drawPolygonObject(double P[][3], int n, int cx, int cy, int scale, int color)
 {
     for (int i = 0; i < n; i++)
     {
         int next = (i + 1) % n;
 
-        int x1 = cx + (int)(P[i][0] * scale);
-        int y1 = cy - (int)(P[i][1] * scale);
+        int x1 = cx + static_cast<int>(P[i][0] * scale);
+        int y1 = cy - static_cast<int>(P[i][1] * scale);
+        int x2 = cx + static_cast<int>(P[next][0] * scale);
+        int y2 = cy - static_cast<int>(P[next][1] * scale);
 
-        int x2 = cx + (int)(P[next][0] * scale);
-        int y2 = cy - (int)(P[next][1] * scale);
-
-        drawLineBresenham(
-            x1,
-            y1,
-            x2,
-            y2,
-            color
-        );
+        drawLineBresenham(x1, y1, x2, y2, color);
     }
 }
 
-
-// =====================================================
-// DISPLAY ORIGINAL AND TRANSFORMED OBJECT
-// =====================================================
-void displayObjects(
-    double original[][3],
-    double transformed[][3],
-    int n)
+// Render both Original (White) and Transformed (Yellow) polygons
+void renderGraphics(double original[][3], double transformed[][3], int n)
 {
-    int gd = DETECT;
-    int gm;
-
-    initgraph(&gd, &gm, (char*)"");
-
     setbkcolor(BLACK);
     cleardevice();
 
     int cx = getmaxx() / 2;
     int cy = getmaxy() / 2;
+    int scale = 25; // Scale factor: 1 unit = 25 pixels
 
-    // Draw coordinate axes
     drawAxes(cx, cy);
 
-    // Draw ORIGINAL object
-    drawObject(
-        original,
-        n,
-        cx,
-        cy,
-        30,
-        WHITE
-    );
+    drawPolygonObject(original, n, cx, cy, scale, WHITE);
+    drawPolygonObject(transformed, n, cx, cy, scale, YELLOW);
 
-    // Draw TRANSFORMED object
-    drawObject(
-        transformed,
-        n,
-        cx,
-        cy,
-        30,
-        YELLOW
-    );
-
-    outtextxy(
-        20,
-        20,
-        (char*)"WHITE = ORIGINAL"
-    );
-
-    outtextxy(
-        20,
-        40,
-        (char*)"YELLOW = TRANSFORMED"
-    );
-
-    getch();
-
-    closegraph();
+    outtextxy(20, 20, (char*)"WHITE  : Original Object");
+    outtextxy(20, 40, (char*)"YELLOW : Transformed Object");
+    outtextxy(20, 60, (char*)"Check terminal for menu options.");
 }
 
+// ============================================================
+// 4. TRANSFORMATION SELECTION HANDLERS
+// ============================================================
 
-// =====================================================
-// INDIVIDUAL TRANSFORMATION
-// =====================================================
-void individualTransformation(
-    double original[][3],
-    double transformed[][3],
-    int n,
-    int choice)
+void getSingleTransformation(double M[3][3])
 {
-    double M[3][3];
+    setIdentity(M);
+    cout << "\n--- Select Transformation ---";
+    cout << "\n1. Translation";
+    cout << "\n2. Scaling";
+    cout << "\n3. Rotation about Origin";
+    cout << "\n4. Rotation about Arbitrary Point";
+    cout << "\n5. Reflection about X-axis";
+    cout << "\n6. Reflection about Y-axis";
+    cout << "\n7. Reflection about Origin";
+    cout << "\n8. Shear in X-direction";
+    cout << "\n9. Shear in Y-direction";
+    cout << "\nEnter choice: ";
 
-    createTransformation(choice, M);
+    int choice;
+    cin >> choice;
 
-    displayMatrix(
-        M,
-        "Transformation Matrix"
-    );
-
-    transformPoints(
-        original,
-        transformed,
-        n,
-        M
-    );
-
-    displayPoints(
-        transformed,
-        n,
-        "Transformed Points"
-    );
-
-    displayObjects(
-        original,
-        transformed,
-        n
-    );
-}
-
-
-// =====================================================
-// COMPOSITE / SEQUENTIAL TRANSFORMATION
-// =====================================================
-void compositeTransformation(
-    double original[][3],
-    double transformed[][3],
-    int n)
-{
-    int count;
-
-    cout << "\nEnter number of transformations: ";
-    cin >> count;
-
-    double composite[3][3] =
+    switch (choice)
     {
-        {1, 0, 0},
-        {0, 1, 0},
-        {0, 0, 1}
-    };
-
-    double M[3][3];
-    double temp[3][3];
-
-    for (int i = 0; i < count; i++)
-    {
-        cout << "\n";
-        cout << "=====================================\n";
-        cout << "Transformation " << i + 1 << "\n";
-        cout << "=====================================\n";
-
-        cout << "\n1. Translation";
-        cout << "\n2. Scaling";
-        cout << "\n3. Rotation";
-        cout << "\n4. Reflection X";
-        cout << "\n5. Reflection Y";
-        cout << "\n6. Shearing X";
-        cout << "\n7. Shearing Y";
-
-        int choice;
-
-        cout << "\n\nEnter choice: ";
-        cin >> choice;
-
-        if (choice < 1 || choice > 7)
-        {
-            cout << "\nInvalid choice!";
-            i--;
-            continue;
+        case 1: {
+            double tx, ty;
+            cout << "Enter tx and ty: ";
+            cin >> tx >> ty;
+            getTranslationMatrix(tx, ty, M);
+            break;
         }
+        case 2: {
+            double sx, sy;
+            cout << "Enter sx and sy: ";
+            cin >> sx >> sy;
+            getScalingMatrix(sx, sy, M);
+            break;
+        }
+        case 3: {
+            double angle;
+            cout << "Enter angle in degrees (CCW): ";
+            cin >> angle;
+            getRotationMatrix(angle, M);
+            break;
+        }
+        case 4: {
+            double xr, yr, angle;
+            cout << "Enter arbitrary point coordinates (xr yr): ";
+            cin >> xr >> yr;
+            cout << "Enter angle in degrees (CCW): ";
+            cin >> angle;
+            getArbitraryPointRotationMatrix(xr, yr, angle, M);
+            break;
+        }
+        case 5:
+            getReflectionMatrix(1, M);
+            break;
+        case 6:
+            getReflectionMatrix(2, M);
+            break;
+        case 7:
+            getReflectionMatrix(3, M);
+            break;
+        case 8: {
+            double shx;
+            cout << "Enter shx: ";
+            cin >> shx;
+            getShearMatrix(1, shx, M);
+            break;
+        }
+        case 9: {
+            double shy;
+            cout << "Enter shy: ";
+            cin >> shy;
+            getShearMatrix(2, shy, M);
+            break;
+        }
+        default:
+            cout << "Invalid choice! Using Identity.\n";
+            setIdentity(M);
+            break;
+    }
+}
 
-        createTransformation(
-            choice,
-            M
-        );
+// Sequential/Composite pipeline:
+// In column convention, P' = (Mn * ... * M2 * M1) * P
+// So each new step pre-multiplies: Composite = CurrentStep * Composite
+void executeSequentialPipeline(double original[][3], double transformed[][3], int n)
+{
+    int k;
+    cout << "\nEnter number of sequential transformations: ";
+    cin >> k;
 
-        displayMatrix(
-            M,
-            "Current Transformation Matrix"
-        );
+    if (k <= 0) return;
 
-        // For row vectors:
-        // P' = P x M1 x M2 x M3
-        multiplyMatrix(
-            composite,
-            M,
-            temp
-        );
+    double composite[3][3];
+    setIdentity(composite);
 
-        copyMatrix(
-            temp,
-            composite
-        );
+    double currentStepMatrix[3][3];
 
-        // Show result AFTER EACH transformation
-        transformPoints(
-            original,
-            transformed,
-            n,
-            composite
-        );
+    for (int step = 1; step <= k; step++)
+    {
+        cout << "\n>>> Config Transformation Step " << step << " of " << k << " <<<";
+        getSingleTransformation(currentStepMatrix);
 
-        displayPoints(
-            transformed,
-            n,
-            "Points After This Transformation"
-        );
+        // Pre-multiply: Composite = CurrentStep * Composite
+        multiplyMatrix3x3(currentStepMatrix, composite, composite);
+
+        // Update transformed points using cumulative composite matrix
+        transformPoints(original, transformed, n, composite);
+
+        cout << "\n--- Status after Step " << step << " ---";
+        displayMatrix(currentStepMatrix, "STEP MATRIX");
+        displayMatrix(composite, "CUMULATIVE COMPOSITE MATRIX");
+        displayPoints(transformed, n, "POINTS AFTER STEP");
     }
 
-    displayMatrix(
-        composite,
-        "FINAL COMPOSITE MATRIX"
-    );
-
-    transformPoints(
-        original,
-        transformed,
-        n,
-        composite
-    );
-
-    displayPoints(
-        transformed,
-        n,
-        "FINAL TRANSFORMED POINTS"
-    );
-
-    displayObjects(
-        original,
-        transformed,
-        n
-    );
+    renderGraphics(original, transformed, n);
 }
 
+// ============================================================
+// 5. MAIN MENU DRIVEN SYSTEM
+// ============================================================
 
-// =====================================================
-// MAIN MENU
-// =====================================================
 int main()
 {
     int n;
-    int choice;
+    double original[MAX_POINTS][3];
+    double transformed[MAX_POINTS][3];
 
-    double original[MAX][3];
-    double transformed[MAX][3];
+    cout << "====================================================\n";
+    cout << "          2D GEOMETRIC TRANSFORMATIONS              \n";
+    cout << "====================================================\n";
 
-    cout << "============================================\n";
-    cout << "       2D TRANSFORMATION PROGRAM\n";
-    cout << "============================================\n";
-
-    cout << "\nEnter number of points: ";
+    cout << "\nEnter number of polygon vertices: ";
     cin >> n;
 
-    cout << "\nEnter points in matrix form.\n";
-    cout << "Use homogeneous coordinates: x y 1\n\n";
-
-    for (int i = 0; i < n; i++)
+    if (n <= 0 || n > MAX_POINTS)
     {
-        cout << "Point " << i + 1 << ": ";
-
-        cin >> original[i][0]
-            >> original[i][1]
-            >> original[i][2];
+        cout << "Invalid point count. Exiting.\n";
+        return 1;
     }
 
-    displayPoints(
-        original,
-        n,
-        "ORIGINAL POINTS"
-    );
+    // Read only standard (x, y) coordinates; automatically assign w = 1.0
+    cout << "\nEnter coordinates for each vertex (x y):\n";
+    for (int i = 0; i < n; i++)
+    {
+        cout << "Vertex " << i + 1 << " (x y): ";
+        cin >> original[i][0] >> original[i][1];
+        original[i][2] = 1.0;
+    }
 
+    // Initialize graphics
+    int gd = DETECT, gm;
+    initgraph(&gd, &gm, (char*)"");
+
+    // Show initial object
+    renderGraphics(original, original, n);
+    displayPoints(original, n, "ORIGINAL POLYGON VERTICES");
+
+    int choice;
     do
     {
-        cout << "\n\n";
+        cout << "\n============================================\n";
+        cout << "                 MAIN MENU                  \n";
         cout << "============================================\n";
-        cout << "                 MAIN MENU\n";
-        cout << "============================================\n";
-
-        cout << "\n1. Translation";
-        cout << "\n2. Scaling";
-        cout << "\n3. Rotation";
-        cout << "\n4. Reflection about X-axis";
-        cout << "\n5. Reflection about Y-axis";
-        cout << "\n6. Shearing in X-direction";
-        cout << "\n7. Shearing in Y-direction";
-        cout << "\n8. Composite / Sequential Transformation";
-        cout << "\n9. Display Original Points";
-        cout << "\n0. Exit";
-
-        cout << "\n\nEnter your choice: ";
+        cout << "1. Apply Individual Transformation\n";
+        cout << "2. Apply Sequential / Composite Transformations\n";
+        cout << "3. Reset/Display Original Points\n";
+        cout << "0. Exit\n";
+        cout << "Enter your choice: ";
         cin >> choice;
 
-        switch (choice)
+        if (choice == 1)
         {
-            case 1:
-            case 2:
-            case 3:
-            case 4:
-            case 5:
-            case 6:
-            case 7:
+            double M[3][3];
+            getSingleTransformation(M);
+            displayMatrix(M, "APPLIED TRANSFORMATION MATRIX");
 
-                individualTransformation(
-                    original,
-                    transformed,
-                    n,
-                    choice
-                );
+            transformPoints(original, transformed, n, M);
+            displayPoints(transformed, n, "TRANSFORMED VERTICES");
 
-                break;
-
-            case 8:
-
-                compositeTransformation(
-                    original,
-                    transformed,
-                    n
-                );
-
-                break;
-
-            case 9:
-
-                displayPoints(
-                    original,
-                    n,
-                    "ORIGINAL POINTS"
-                );
-
-                break;
-
-            case 0:
-
-                cout << "\nExiting program...";
-                break;
-
-            default:
-
-                cout << "\nInvalid choice!";
+            renderGraphics(original, transformed, n);
+        }
+        else if (choice == 2)
+        {
+            executeSequentialPipeline(original, transformed, n);
+        }
+        else if (choice == 3)
+        {
+            renderGraphics(original, original, n);
+            displayPoints(original, n, "ORIGINAL POLYGON VERTICES");
+        }
+        else if (choice == 0)
+        {
+            cout << "\nExiting Program.\n";
+        }
+        else
+        {
+            cout << "\nInvalid choice, please re-enter.\n";
         }
 
     } while (choice != 0);
 
+    closegraph();
     return 0;
 }
